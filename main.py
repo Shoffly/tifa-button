@@ -80,6 +80,7 @@ POST_TEMPLATE = """🚗 {make} {model} - {year} - {kilometers:,} كم
 📋 التقرير المفصل متوفر على التطبيق.
 📲 شوفها هنا: {tracking_link}"""
 
+
 class FlashSalePostGenerator:
     def __init__(self):
         st.info("🚀 Initializing Flash Sale Post Generator")
@@ -114,7 +115,7 @@ class FlashSalePostGenerator:
     def _get_bigquery_client(self):
         """Get BigQuery client with service account credentials"""
         st.info("🔐 Attempting to initialize BigQuery client")
-        
+
         credentials = self.get_credentials()
         if not credentials:
             return None
@@ -174,7 +175,8 @@ WHERE DATE(log_date) = current_date() AND status_before = "created" AND status_a
                     'published_at': row['published_at']
                 }
                 cars.append(car_data)
-                st.info(f"🚗 {car_data['sf_vehicle_name']} (ID: {car_data['ajans_vehicle_id']}): {car_data['make']} {car_data['model']} {car_data['year']}")
+                st.info(
+                    f"🚗 {car_data['sf_vehicle_name']} (ID: {car_data['ajans_vehicle_id']}): {car_data['make']} {car_data['model']} {car_data['year']}")
 
             st.success(f"✅ Successfully processed {len(cars)} wholesale-to-retail published cars")
             return cars
@@ -286,7 +288,8 @@ WHERE DATE(log_date) = current_date() AND status_before = "created" AND status_a
             vehicle_name = car_data['sf_vehicle_name']
 
             try:
-                st.info(f"🚗 Processing {vehicle_name} (ID: {car_data['ajans_vehicle_id']}): {car_data['make']} {car_data['model']} {car_data['year']}")
+                st.info(
+                    f"🚗 Processing {vehicle_name} (ID: {car_data['ajans_vehicle_id']}): {car_data['make']} {car_data['model']} {car_data['year']}")
 
                 # Skip cars with unknown make or model
                 if car_data['make'] == 'Unknown' or car_data['model'] == 'Unknown':
@@ -397,6 +400,7 @@ WHERE DATE(log_date) = current_date() AND status_before = "created" AND status_a
             st.error(f"❌ Unexpected error sending to webhook: {e}")
             return False
 
+
 def run_flash_sale_generation():
     """Run the flash sale posts generation process"""
     try:
@@ -448,10 +452,11 @@ def run_flash_sale_generation():
             'error': str(e)
         }
 
+
 def main():
     # Header
     st.markdown('<h1 class="main-header">🚗 Flash Sale Posts Generator</h1>', unsafe_allow_html=True)
-    
+
     # Description
     st.markdown("""
     This app generates automated social media posts for flash sale cars by:
@@ -460,112 +465,94 @@ def main():
     - Generating post content using templates
     - Sending posts to webhook endpoint
     """)
+
     
-    # Check if required files exist
-    if not os.path.exists("service_account.json"):
-        st.warning("⚠️ service_account.json not found. Make sure you have BigQuery credentials!")
-    
+
     # Button container
     st.markdown('<div class="button-container">', unsafe_allow_html=True)
-    
+
     # Generate button
     if st.button("🚀 Generate Flash Sale Posts & Send Webhook", key="generate_button"):
         st.markdown('</div>', unsafe_allow_html=True)
-        
+
         # Create progress indicators
         progress_bar = st.progress(0)
         status_text = st.empty()
-        
+
         # Update progress
         status_text.text("🔄 Initializing Flash Sale Posts Generator...")
         progress_bar.progress(10)
         time.sleep(0.5)
-        
+
         status_text.text("🔍 Fetching flash sale cars from BigQuery...")
         progress_bar.progress(30)
         time.sleep(0.5)
-        
+
         status_text.text("🔗 Creating tracking links...")
         progress_bar.progress(50)
         time.sleep(0.5)
-        
+
         status_text.text("📝 Generating post content...")
         progress_bar.progress(70)
         time.sleep(0.5)
-        
+
         status_text.text("🌐 Sending posts to webhook...")
         progress_bar.progress(90)
         time.sleep(0.5)
-        
+
         # Run the generation process
         status_text.text("⚡ Executing generation process...")
         result = run_flash_sale_generation()
-        
+
         # Complete progress
         progress_bar.progress(100)
         status_text.text("✅ Complete!")
         time.sleep(1)
-        
+
         # Clear progress indicators
         progress_bar.empty()
         status_text.empty()
-        
+
         # Display results
         st.markdown("## 📊 Execution Results")
-        
+
         if result['success']:
             st.markdown('<div class="status-box success-box">', unsafe_allow_html=True)
             st.success("✅ Flash sale posts generation completed successfully!")
             st.markdown('</div>', unsafe_allow_html=True)
-            
+
             if result['posts']:
                 # Summary
                 st.markdown("## 📈 Summary")
                 col1, col2, col3 = st.columns(3)
-                
+
                 with col1:
                     st.metric("Total Posts", result['total_posts'])
-                
+
                 with col2:
                     st.metric("Generated At", datetime.now().strftime("%H:%M:%S"))
-                
+
                 with col3:
                     status = "✅ Sent to Webhook" if result['webhook_success'] else "❌ Webhook Failed"
                     st.metric("Status", status)
             else:
                 st.info("ℹ️ No posts were generated - no flash sale cars found for today")
-                
+
         else:
             st.markdown('<div class="status-box error-box">', unsafe_allow_html=True)
             st.error("❌ Flash sale posts generation failed!")
             if 'error' in result:
                 st.error(f"Error: {result['error']}")
             st.markdown('</div>', unsafe_allow_html=True)
-        
+
     else:
         st.markdown('</div>', unsafe_allow_html=True)
+
         
-        # Instructions when button hasn't been clicked
-        st.markdown("## 📋 Instructions")
-        st.markdown("""
-        1. **Prerequisites:**
-           - Ensure `service_account.json` contains valid BigQuery credentials
-           - Make sure you have internet connection for webhook delivery
-        
-        2. **Click the button above** to:
-           - Fetch today's flash sale cars from BigQuery
-           - Generate tracking links for each car
-           - Create social media post content
-           - Send all posts to the webhook endpoint
-        
-        3. **Results will be displayed** including:
-           - Generated posts in JSON format
-           - Execution status and summary
-           - Webhook delivery status
-        """)
         
         # Show current time
         st.markdown(f"**Current Time:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
 
 if __name__ == "__main__":
     main()
