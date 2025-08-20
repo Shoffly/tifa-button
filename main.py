@@ -93,6 +93,33 @@ class FlashSalePostGenerator:
             raise Exception("BigQuery client initialization failed")
 
         st.success("✅ Flash Sale Post Generator initialized successfully")
+    
+    def validate_query_columns(self, query: str) -> tuple[bool, list]:
+        """
+        Validate that the query contains the required column names
+        Returns: (is_valid, missing_columns)
+        """
+        required_columns = [
+            'sf_vehicle_name',
+            'ajans_vehicle_id', 
+            'published_at',
+            'car_make',
+            'car_model',
+            'car_year',
+            'kilometrage'
+        ]
+        
+        # Convert query to lowercase for case-insensitive checking
+        query_lower = query.lower()
+        missing_columns = []
+        
+        for column in required_columns:
+            # Check if column name appears in the query (as alias or column name)
+            if column.lower() not in query_lower:
+                missing_columns.append(column)
+        
+        is_valid = len(missing_columns) == 0
+        return is_valid, missing_columns
 
     def get_credentials(self):
         """Function to get BigQuery credentials"""
@@ -129,7 +156,7 @@ class FlashSalePostGenerator:
             st.error(f"❌ Error creating BigQuery client: {e}")
             return None
 
-    def get_flash_sale_cars(self) -> List[Dict]:
+    def get_flash_sale_cars(self, custom_query: str = None) -> List[Dict]:
         """
         Get flash sale cars from BigQuery using the provided query
         """
@@ -139,18 +166,32 @@ class FlashSalePostGenerator:
             st.error("❌ No BigQuery client available")
             return []
 
-        query = """
-                SELECT DISTINCT a.car_name as sf_vehicle_name,
-                a.vehicle_id as ajans_vehicle_id,
-                DATE(a.log_date) AS published_at,
-                b.car_make,
-                b.car_model,
-                b.car_year,
-                b.kilometrage
-FROM ajans_dealers.wholesale_vehicle_activity_logs a 
-LEFT JOIN reporting.vehicle_acquisition_to_selling b ON a.car_name = b.car_name
-WHERE DATE(log_date) = current_date() AND status_before = "created" AND status_after = "published"
-        """
+        # Use custom query if provided, otherwise use default
+        if custom_query:
+            # Validate the custom query has required columns
+            is_valid, missing_columns = self.validate_query_columns(custom_query)
+            if not is_valid:
+                st.error(f"❌ Custom query is missing required columns: {', '.join(missing_columns)}")
+                st.error("Please ensure your query returns all required columns with exact names.")
+                return []
+            
+            query = custom_query
+            st.info("✅ Using custom query provided by user")
+        else:
+            # Default query
+            query = """
+                    SELECT DISTINCT a.car_name as sf_vehicle_name,
+                    a.vehicle_id as ajans_vehicle_id,
+                    DATE(a.log_date) AS published_at,
+                    b.car_make,
+                    b.car_model,
+                    b.car_year,
+                    b.kilometrage
+    FROM ajans_dealers.wholesale_vehicle_activity_logs a 
+    LEFT JOIN reporting.vehicle_acquisition_to_selling b ON a.car_name = b.car_name
+    WHERE DATE(log_date) = current_date() AND status_before = "created" AND status_after = "published"
+            """
+            st.info("📝 Using default query")
 
         try:
             st.info("Executing flash sale cars query")
@@ -265,14 +306,14 @@ WHERE DATE(log_date) = current_date() AND status_before = "created" AND status_a
             # Return a basic fallback post
             return f"🔥 Flash Sale! {car_data['make']} {car_data['model']} {car_data['year']} - {tracking_link}"
 
-    def generate_posts(self) -> List[Dict]:
+    def generate_posts(self, custom_query: str = None) -> List[Dict]:
         """
         Main function to generate posts for all flash sale cars
         """
         st.info("🚀 Starting flash sale posts generation...")
 
         # Get flash sale cars
-        flash_sale_cars = self.get_flash_sale_cars()
+        flash_sale_cars = self.get_flash_sale_cars(custom_query)
 
         if not flash_sale_cars:
             st.info("ℹ️ No flash sale cars found. No posts to generate.")
@@ -404,13 +445,16 @@ WHERE DATE(log_date) = current_date() AND status_before = "created" AND status_a
 def run_flash_sale_generation():
     """Run the flash sale posts generation process"""
     try:
+        # Get custom query from session state
+        custom_query = st.session_state.get('custom_query', None)
+        
         # Initialize the post generator
         st.info("🔧 Initializing Flash Sale Post Generator...")
         generator = FlashSalePostGenerator()
 
         # Generate posts
         st.info("📱 Generating flash sale posts...")
-        posts = generator.generate_posts()
+        posts = generator.generate_posts(custom_query)
 
         if posts:
             # Send to webhook endpoint
@@ -465,6 +509,62 @@ def main():
     - Generating post content using templates
     - Sending posts to webhook endpoint
     """)
+
+    # Query Configuration Section
+    st.markdown("## ⚙️ Query Configuration")
+    
+    # Default query
+    default_query = """SELECT DISTINCT a.car_name as sf_vehicle_name,
+a.vehicle_id as ajans_vehicle_id,
+DATE(a.log_date) AS published_at,
+b.car_make,
+b.car_model,
+b.car_year,
+b.kilometrage
+FROM ajans_dealers.wholesale_vehicle_activity_logs a 
+LEFT JOIN reporting.vehicle_acquisition_to_selling b ON a.car_name = b.car_name
+WHERE DATE(log_date) = current_date() AND status_before = "created" AND status_after = "published\""""
+    
+    # Instructions
+    st.markdown("""
+    **⚠️ Required Column Names:**
+    Your query MUST return these exact column names for the script to work:
+    - `sf_vehicle_name` - Vehicle name/identifier
+    - `ajans_vehicle_id` - Vehicle ID for deep linking
+    - `published_at` - Publication date
+    - `car_make` - Car manufacturer
+    - `car_model` - Car model
+    - `car_year` - Car year
+    - `kilometrage` - Car mileage/kilometers
+    """)
+    
+    # Query input
+    custom_query = st.text_area(
+        "📝 BigQuery SQL (modify as needed):",
+        value=default_query,
+        height=200,
+        help="Modify this query but ensure it returns all required columns with exact names listed above"
+    )
+    
+    # Store the query in session state
+    st.session_state['custom_query'] = custom_query
+    
+    # Query validation preview
+    if st.button("🔍 Validate Query", key="validate_query"):
+        st.markdown("### 🔍 Query Validation Results")
+        
+        # Create a temporary generator to use validation method
+        try:
+            temp_generator = FlashSalePostGenerator()
+            is_valid, missing_columns = temp_generator.validate_query_columns(custom_query)
+            
+            if is_valid:
+                st.success("✅ Query validation passed! All required columns are present.")
+            else:
+                st.error(f"❌ Query validation failed! Missing columns: {', '.join(missing_columns)}")
+                st.info("Please ensure your query returns all required columns with exact names.")
+        except Exception as e:
+            st.error(f"❌ Error during validation: {e}")
 
     
 
